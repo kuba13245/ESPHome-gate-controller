@@ -1,0 +1,207 @@
+esphome:
+  name: gate
+  friendly_name: Gate
+
+
+esp8266:
+  board: nodemcuv2
+
+
+# Enable logging
+logger:
+
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_key
+
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 5min
+
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Gate Fallback Hotspot"
+    password: !secret ap_password
+
+
+captive_portal:    
+
+
+switch:
+  - platform: gpio
+    pin: D5
+    name: "Garage Door Switch"
+    id: garage_switch
+
+
+  - platform: restart
+    name: "Gate Restart"
+
+
+
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: D1
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    name: "Gate Open Status"
+    id: open_status
+    filters:
+      - delayed_on: 2000ms  # Delay 2s before detecting open state
+
+
+
+
+    on_state:
+      - if:
+          condition:
+            binary_sensor.is_off: close_status
+          then:
+            - sensor.template.publish:
+                id: gate_last_state
+                state: 1
+            - cover.template.publish:
+                id: gate
+                state: OPEN
+            - cover.template.publish:
+                id: gate
+                current_operation: IDLE
+
+
+
+
+   
+
+
+  - platform: gpio
+    pin:
+      number: D2
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    name: "Gate Close Status"
+    id: close_status
+
+
+    on_state:
+      - sensor.template.publish:
+          id: gate_last_state
+          state: 0
+      - cover.template.publish:
+          id: gate
+          state: CLOSED
+      - cover.template.publish:
+                id: gate
+                current_operation: IDLE
+       
+
+
+
+
+sensor:
+  #0 - closed
+  #1 - open
+  - platform: template
+    name: "gate last state"
+    id: gate_last_state
+
+
+  - platform: wifi_signal
+    name: "WiFi Signal Sensor"
+    update_interval: 1s
+
+
+  - platform: template
+    name: "Gate Operation Time"
+    id: gate_operation_time
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    icon: "mdi:timer-sand"
+
+
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            and:
+              - binary_sensor.is_off: "open_status"
+              - binary_sensor.is_off: "close_status"
+              - lambda: 'return id(gate_last_state).state == 0;'
+          then:
+            - cover.template.publish:
+                id: gate
+                state: OPEN
+            - delay: 2s
+            - cover.template.publish:
+                id: gate
+                current_operation: OPENING
+      - if:
+          condition:
+            and:
+              - binary_sensor.is_off: "open_status"
+              - binary_sensor.is_off: "close_status"
+              - lambda: 'return id(gate_last_state).state == 1;'
+          then:
+            - cover.template.publish:
+                id: gate
+                current_operation: CLOSING    
+      - if:
+          condition:
+            - binary_sensor.is_on: "close_status"
+          then:
+            - cover.template.publish:
+                id: gate
+                state: CLOSED
+            - sensor.template.publish:
+                id: gate_last_state
+                state: 0
+            - cover.template.publish:
+                id: gate
+                current_operation: IDLE
+      - if:
+          condition:
+            and:
+              - binary_sensor.is_on: "open_status"
+              - binary_sensor.is_off: "close_status"
+          then:
+            - cover.template.publish:
+                id: gate
+                state: OPEN
+            - cover.template.publish:
+                id: gate
+                current_operation: IDLE
+     
+   
+
+
+cover:
+  - platform: template
+    name: "Gate"
+    device_class: gate
+    id: gate
+    open_action:
+      - switch.turn_on: garage_switch
+      - delay: 3s
+      - switch.turn_off: garage_switch
+    close_action:
+      - switch.turn_on: garage_switch
+      - delay: 3s
+      - switch.turn_off: garage_switch
+
+
